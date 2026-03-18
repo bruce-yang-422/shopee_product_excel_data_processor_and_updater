@@ -1,37 +1,46 @@
+# ========================
 # Python
+# ========================
 __pycache__/
 *.py[cod]
 *.pyo
-.venv/
-venv/
 *.egg-info/
 
-# 資料檔案（排除內容但保留資料夾結構）
+# Virtual Environment
+.venv/
+venv/
+
+# ========================
+# Project Data（重要）
+# ========================
 data/input/*
 data/output/*
 data/backup/*
 temp/*
 logs/*
 
-# 所有 CSV / Excel / 日誌檔案
-*.csv
-*.xlsx
-*.xlsm
-*.xls
-*.log
-
-# 保留各資料夾的卡位檔案
+# 保留資料夾結構
 !data/input/.gitkeep
+!data/input/README.md
 !data/output/.gitkeep
 !data/backup/.gitkeep
 !temp/.gitkeep
 !logs/.gitkeep
 
-# 作業系統
+# ========================
+# Logs
+# ========================
+*.log
+
+# ========================
+# OS
+# ========================
 .DS_Store
 Thumbs.db
 
+# ========================
 # IDE
+# ========================
 .vscode/
 .idea/
 *.swp
