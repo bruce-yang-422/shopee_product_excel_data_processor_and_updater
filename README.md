@@ -1,6 +1,6 @@
 # 蝦皮 GTIN 批次處理器
 
-自動讀取蝦皮商品批次更新 Excel，依 SKU 規則填入空白的 GTIN（國際條碼）欄位，輸出可直接上傳蝦皮的 CSV 檔案。
+自動讀取蝦皮商品批次更新 Excel，依 SKU 規則填入空白的 GTIN（國際條碼）欄位，產生供檢查的 `temp/*.csv` 與可直接上傳蝦皮的 `data/output/*.xlsx`。
 
 ---
 
@@ -47,7 +47,9 @@
 - 批次處理 `data/input/` 下所有 `.xlsx` 檔案
 - 依 GS1 標準驗證 SKU 是否為合法條碼（含末位校驗碼驗證）
 - 自動填入空白 GTIN 欄位；無法辨識的條碼一律填 `"00"`
-- 處理後的 CSV 輸出至 `temp/`，可直接上傳蝦皮批次更新
+- 依 `data/reference/gs1_prefix_lookup_table.json` 推定條碼國家，回寫到 `temp` CSV 新欄位
+- `temp` CSV 僅供檢查，不作為蝦皮上傳檔；`gs1_country_zh` 不會帶入 `data/output` 的 xlsx
+- 處理後的 xlsx 輸出至 `data/output/`，可直接上傳蝦皮批次更新
 - 原始檔案自動備份至 `data/backup/`
 - 完整處理記錄寫入 `logs/`
 
@@ -60,9 +62,11 @@ shopee_product_excel_data_processor_and_updater/
 ├── main.py                          # 主執行腳本
 ├── requirements.txt
 ├── data/
+│   ├── backup/                      # 原始檔案備份（首次執行時自動建立）
 │   ├── input/                       # 放置待處理的 xlsx 檔案
-│   └── backup/                      # 原始檔案備份（首次執行時自動建立）
-├── temp/                            # 處理後 CSV（可直接上傳蝦皮）
+│   ├── output/                      # 處理後 xlsx（可直接上傳蝦皮）
+│   ├── reference/                   # 靜態參考資料（如 GS1 prefix 對照表）
+├── temp/                            # 中間 / 檢查用 CSV（含 gs1_country_zh）
 ├── logs/                            # 執行記錄（UTF-8）
 └── scripts/
     ├── convert_input_to_csv.py      # Excel / CSV 轉換模組
@@ -96,13 +100,14 @@ python main.py
 ### 完整參數
 
 ```bash
-python main.py [--input PATH] [--temp PATH] [--backup PATH] [--no-overwrite-temp]
+python main.py [--input PATH] [--output PATH] [--temp PATH] [--backup PATH] [--no-overwrite-temp]
 ```
 
 | 參數 | 預設值 | 說明 |
 | --- | --- | --- |
 | `--input` / `-i` | `data/input` | 輸入 xlsx 資料夾 |
-| `--temp` / `-t` | `temp` | 處理後 CSV 的輸出資料夾 |
+| `--output` / `-o` | `data/output` | 處理後 xlsx 的輸出資料夾 |
+| `--temp` / `-t` | `temp` | 中間 CSV 暫存資料夾 |
 | `--backup` | `data/backup` | 原始檔案備份資料夾 |
 | `--no-overwrite-temp` | — | 沿用現有 temp CSV，跳過步驟一 |
 
@@ -132,11 +137,12 @@ python main.py [--input PATH] [--temp PATH] [--backup PATH] [--no-overwrite-temp
 ```text
 步驟一  data/input/<檔名>.xlsx
           → convert_input_to_csv.convert_excel_to_csv()
-          → temp/<檔名>.csv            （原始 CSV，所有欄位為字串）
+          → temp/<檔名>.csv              （原始 CSV，所有欄位為字串）
 
 步驟二  temp/<檔名>.csv
-          → 套用 GTIN 填入邏輯
-          → temp/<檔名>.csv            （覆寫為處理後的 CSV，可直接上傳蝦皮）
+          → 套用 GTIN 填入邏輯，並新增條碼國家欄位
+          → 回寫 temp/<檔名>.csv         （供人工檢查）
+          → data/output/<檔名>.xlsx      （處理後的 xlsx，可直接上傳蝦皮）
 ```
 
 ---
@@ -169,4 +175,10 @@ is_valid_gtin("0212345678901")  # False（02 開頭，內部條碼）
 
 將 Excel（`.xlsx`、`.xlsm`）或 CSV 轉換為統一格式的 CSV，所有欄位值保留為字串。
 
-支援自動修復含有無效 XML pane 值的 Excel 檔案。
+預設輸出到 `temp/`，並支援自動修復含有無效 XML pane 值的 Excel 檔案。
+
+### `data/reference/gs1_prefix_lookup_table.json`
+
+GS1 prefix 對照表的靜態資料檔，集中放在 `data/reference/` 方便後續擴充其他參考資料。
+
+`main.py` 執行時會引用這份對照表，將合法 GTIN 的國家/地區名稱寫入 `temp/*.csv` 的 `gs1_country_zh` 欄位；此欄位不會出現在 `data/output/*.xlsx`。

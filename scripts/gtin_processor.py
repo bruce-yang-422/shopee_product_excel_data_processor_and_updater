@@ -12,7 +12,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 
@@ -26,6 +29,9 @@ SKU_COL = "et_title_variation_sku"
 # GTIN / 國際條碼欄位的內部名稱
 GTIN_COL = "ps_gtin_code"
 
+# 條碼國家欄位（僅回寫至 temp CSV，不帶入蝦皮上傳 xlsx）
+GS1_COUNTRY_COL = "gs1_country_zh"
+
 # CSV 中資料列前的非資料標頭列數。
 # pd.read_csv（header=0）後的結構：
 #   df 第 0 列 → sales_info 中繼資料
@@ -38,6 +44,8 @@ METADATA_ROW_COUNT = 5
 
 # pandas 在 dtype=str 時，空白儲存格可能產生的哨兵字串
 _EMPTY_VALS: frozenset[str] = frozenset({"", "nan", "NaN", "None"})
+BASE_DIR = Path(__file__).resolve().parents[1]
+GS1_PREFIX_LOOKUP_PATH = BASE_DIR / "data" / "reference" / "gs1_prefix_lookup_table.json"
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +61,20 @@ def _gtin_check_digit_valid(v: str) -> bool:
     padded = v.zfill(14)
     total = sum(int(d) * (3 if i % 2 == 0 else 1) for i, d in enumerate(padded[:-1]))
     return (10 - total % 10) % 10 == int(padded[-1])
+
+
+@lru_cache(maxsize=1)
+def _load_gs1_prefix_ranges() -> list[dict[str, int | str]]:
+    """Load GS1 prefix country mappings from the reference JSON file."""
+
+    with GS1_PREFIX_LOOKUP_PATH.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise ValueError(f"GS1 prefix lookup table format is invalid: {GS1_PREFIX_LOOKUP_PATH}")
+
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +102,35 @@ def is_valid_gtin(value: str) -> bool:
     return True
 
 
+def lookup_gs1_country(value: str) -> str:
+    """Return the Chinese country/region name inferred from a valid GTIN prefix."""
+
+    v = value.strip()
+    if not is_valid_gtin(v):
+        return ""
+
+    prefix = int(v[:3])
+    for row in _load_gs1_prefix_ranges():
+        start = int(row["start"])
+        end = int(row["end"])
+        if start <= prefix <= end:
+            return str(row.get("country_zh", "")).strip()
+
+    return ""
+
+
+def _ensure_country_column(df: pd.DataFrame) -> None:
+    """Ensure the temp CSV contains the GS1 country column and metadata label row."""
+
+    if GS1_COUNTRY_COL not in df.columns:
+        df[GS1_COUNTRY_COL] = ""
+
+    df[GS1_COUNTRY_COL] = df[GS1_COUNTRY_COL].fillna("").astype(str)
+
+    if len(df.index) > 1:
+        df.at[df.index[1], GS1_COUNTRY_COL] = "條碼國家"
+
+
 # ---------------------------------------------------------------------------
 # 批次 GTIN 填入
 # ---------------------------------------------------------------------------
@@ -103,16 +154,22 @@ def process_gtin(df: pd.DataFrame, logger: logging.Logger) -> dict:
         raise ValueError(f"找不到 SKU 欄位 '{SKU_COL}'。")
     if GTIN_COL not in df.columns:
         raise ValueError(f"找不到 GTIN 欄位 '{GTIN_COL}'。")
+    if not GS1_PREFIX_LOOKUP_PATH.exists():
+        raise ValueError(f"找不到 GS1 prefix 對照表：{GS1_PREFIX_LOOKUP_PATH}")
+
+    _ensure_country_column(df)
 
     stats: dict[str, int] = {"already_set": 0, "set_from_sku": 0, "set_to_00": 0}
 
     for idx in df.index[METADATA_ROW_COUNT:]:
         gtin = str(df.at[idx, GTIN_COL]).strip()
         sku = str(df.at[idx, SKU_COL]).strip()
+        df.at[idx, GS1_COUNTRY_COL] = ""
 
         # GTIN 已有值 → 保留，跳過
         if gtin and gtin not in _EMPTY_VALS:
             stats["already_set"] += 1
+            df.at[idx, GS1_COUNTRY_COL] = lookup_gs1_country(gtin)
             continue
 
         # SKU 為空 → 無條碼可用
@@ -125,6 +182,7 @@ def process_gtin(df: pd.DataFrame, logger: logging.Logger) -> dict:
         # SKU 為合法條碼 → 複製至 GTIN；否則設為 "00"
         if is_valid_gtin(sku):
             df.at[idx, GTIN_COL] = sku
+            df.at[idx, GS1_COUNTRY_COL] = lookup_gs1_country(sku)
             stats["set_from_sku"] += 1
         else:
             df.at[idx, GTIN_COL] = "00"

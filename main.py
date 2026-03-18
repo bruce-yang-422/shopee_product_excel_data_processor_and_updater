@@ -9,7 +9,7 @@
 
   步驟二  temp/<檔名>.csv
             → 套用 GTIN 邏輯於記憶體中
-            → temp/<檔名>.csv          （覆寫為處理後的 CSV，可直接上傳蝦皮）
+            → data/output/<檔名>.xlsx  （處理後的 xlsx，可直接上傳蝦皮）
 
 GTIN 處理邏輯：
   - GTIN 已有值                 → 跳過，保留原值
@@ -22,7 +22,7 @@ GTIN 處理邏輯：
 
 使用方式：
     python main.py
-    python main.py --input data/input --temp temp
+    python main.py --input data/input --output data/output --temp temp
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "data" / "input"
 TEMP_DIR = BASE_DIR / "temp"
+OUTPUT_DIR = BASE_DIR / "data" / "output"
 BACKUP_DIR = BASE_DIR / "data" / "backup"
 LOGS_DIR = BASE_DIR / "logs"
 SCRIPTS_DIR = BASE_DIR / "scripts"
@@ -50,7 +51,7 @@ SCRIPTS_DIR = BASE_DIR / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from gtin_processor import GTIN_COL, METADATA_ROW_COUNT, _EMPTY_VALS, process_gtin  # type: ignore[import-not-found]  # noqa: E402
+from gtin_processor import GS1_COUNTRY_COL, GTIN_COL, METADATA_ROW_COUNT, _EMPTY_VALS, process_gtin  # type: ignore[import-not-found]  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # 日誌設定
@@ -79,14 +80,15 @@ def setup_logging(logs_dir: Path) -> logging.Logger:
 def process_file(
     xlsx_path: Path,
     temp_dir: Path,
+    output_dir: Path,
     backup_dir: Path,
     logger: logging.Logger,
     overwrite_temp: bool = True,
 ) -> bool:
     """對單一 Excel 檔案執行 2 步驟流程。成功回傳 True。
 
-    步驟一：xlsx → temp/<檔名>.csv          （透過 scripts/convert_input_to_csv）
-    步驟二：處理 GTIN → 覆寫 temp CSV       （處理後的 CSV 可直接上傳蝦皮）
+    步驟一：xlsx → temp/<檔名>.csv              （透過 scripts/convert_input_to_csv）
+    步驟二：處理 GTIN → data/output/<檔名>.xlsx  （處理後的 xlsx 可直接上傳蝦皮）
     """
     stem = xlsx_path.stem
 
@@ -113,7 +115,7 @@ def process_file(
             logger.error(f"  [步驟一] 轉換失敗：{exc}")
             return False
 
-    # ── 步驟二：讀取 CSV → 套用 GTIN 邏輯 → 覆寫 CSV（可直接上傳蝦皮）──────
+    # ── 步驟二：讀取 CSV → 套用 GTIN 邏輯 → 輸出 xlsx ───────────────────────
     try:
         df = pd.read_csv(csv_path, dtype=str, keep_default_na=False, na_filter=False)
     except Exception as exc:
@@ -133,16 +135,26 @@ def process_file(
         logger.error(f"  [步驟二] 欄位錯誤：{exc}")
         return False
 
+    try:
+        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
+        logger.info(f"  [步驟二] 已回寫含條碼國家的 CSV：temp/{csv_path.name}")
+    except Exception as exc:
+        logger.error(f"  [步驟二] 回寫 CSV 失敗：{exc}")
+        return False
+
     logger.info(
         f"  [步驟二] GTIN 結果：已有值={stats['already_set']}，"
         f"來自SKU={stats['set_from_sku']}，設為00={stats['set_to_00']}"
     )
 
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / f"{stem}.xlsx"
     try:
-        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-        logger.info(f"  [步驟二] 處理後 CSV 已儲存 → temp/{csv_path.name}")
+        export_df = df.drop(columns=[GS1_COUNTRY_COL], errors="ignore")
+        export_df.to_excel(out_path, index=False, engine="openpyxl")
+        logger.info(f"  [步驟二] 處理後 xlsx 已儲存 → output/{out_path.name}")
     except Exception as exc:
-        logger.error(f"  [步驟二] 儲存處理後 CSV 失敗：{exc}")
+        logger.error(f"  [步驟二] 儲存處理後 xlsx 失敗：{exc}")
         return False
 
     logger.info("  處理完成")
@@ -164,10 +176,16 @@ def main(argv: list[str] | None = None) -> int:
         help="包含 Excel 檔案的輸入資料夾（預設：data/input）",
     )
     parser.add_argument(
+        "--output", "-o",
+        type=Path,
+        default=OUTPUT_DIR,
+        help="處理後 xlsx 的輸出資料夾（預設：data/output）",
+    )
+    parser.add_argument(
         "--temp", "-t",
         type=Path,
         default=TEMP_DIR,
-        help="處理後 CSV 的輸出資料夾（預設：temp）",
+        help="中間 CSV 暫存資料夾（預設：temp）",
     )
     parser.add_argument(
         "--backup",
@@ -192,10 +210,20 @@ def main(argv: list[str] | None = None) -> int:
         logger.error(f"找不到輸入資料夾：{input_dir}")
         return 1
 
-    matching_files = [
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+    all_xlsx = [
         f for f in sorted(input_dir.iterdir())
         if f.is_file() and f.suffix.lower() == ".xlsx"
     ]
+
+    matching_files = []
+    for f in all_xlsx:
+        if f.stat().st_size <= MAX_FILE_SIZE:
+            matching_files.append(f)
+        else:
+            size_mb = f.stat().st_size / 1024 / 1024
+            logger.warning(f"略過（超過 5 MB，{size_mb:.1f} MB）：{f.name}")
 
     if not matching_files:
         logger.warning(f"在 {input_dir} 中找不到符合規則的檔案")
@@ -211,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         ok = process_file(
             xlsx_path=xlsx_path,
             temp_dir=args.temp,
+            output_dir=args.output,
             backup_dir=args.backup,
             logger=logger,
             overwrite_temp=not args.no_overwrite_temp,
