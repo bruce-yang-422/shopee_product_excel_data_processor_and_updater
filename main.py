@@ -11,7 +11,6 @@
             → 套用 GTIN 邏輯於記憶體中
             → temp/<檔名>.csv          （覆寫為處理後的 CSV，可直接上傳蝦皮）
 
-檔案命名篩選規則：  SH????_*商品資料*_??.xlsx
 GTIN 處理邏輯：
   - GTIN 已有值                 → 跳過，保留原值
   - SKU 為空                    → GTIN = "00"
@@ -30,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
 import shutil
 import sys
 from datetime import datetime
@@ -53,14 +51,6 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from gtin_processor import GTIN_COL, METADATA_ROW_COUNT, _EMPTY_VALS, process_gtin  # type: ignore[import-not-found]  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# 檔案命名規則
-# ---------------------------------------------------------------------------
-
-# 檔案命名規則：SH + 4 字元 + _ + *商品資料* + _ + 2 位數序號 + .xlsx
-FILE_PATTERN = re.compile(r"^SH.{4}_.*商品資料.*_\d{2}\.xlsx$")
-
 
 # ---------------------------------------------------------------------------
 # 日誌設定
@@ -204,19 +194,8 @@ def main(argv: list[str] | None = None) -> int:
 
     matching_files = [
         f for f in sorted(input_dir.iterdir())
-        if f.is_file() and FILE_PATTERN.match(f.name)
+        if f.is_file() and f.suffix.lower() == ".xlsx"
     ]
-
-    skipped_files = [
-        f for f in sorted(input_dir.iterdir())
-        if f.is_file()
-        and f.suffix.lower() == ".xlsx"
-        and not FILE_PATTERN.match(f.name)
-    ]
-
-    if skipped_files:
-        for f in skipped_files:
-            logger.warning(f"略過（命名不符）：{f.name}")
 
     if not matching_files:
         logger.warning(f"在 {input_dir} 中找不到符合規則的檔案")
