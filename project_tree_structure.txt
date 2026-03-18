@@ -1,0 +1,24 @@
+📁 shopee_product_excel_data_processor_and_updater
+├── 📁 .venv
+├── 📂 data
+│   ├── 📂 backup
+│   │   ├── 📈 SH0005_有才寵物商店_商品資料_01.xlsx
+│   │   └── 📈 SH0005_有才寵物商店_商品資料_02.xlsx
+│   ├── 📂 input
+│   │   ├── 📈 SH0005_有才寵物商店_商品資料_01.xlsx
+│   │   └── 📈 SH0005_有才寵物商店_商品資料_02.xlsx
+│   └── 📂 output
+│       ├── 📈 processed_SH0005_有才寵物商店_商品資料_01.xlsx
+│       └── 📈 processed_SH0005_有才寵物商店_商品資料_02.xlsx
+├── 📂 logs
+│   └── 📋 gtin_processor_20260318_171302.log
+├── 📂 scripts
+│   ├── 🐍 convert_input_to_csv.py
+│   └── 🐍 project_tree_structure_generator.py
+├── 📂 temp
+│   ├── 📊 Result_shopee_mass_update_sales_info_1351956369_20260318171433.csv
+│   ├── 📊 SH0005_有才寵物商店_商品資料_01.csv
+│   └── 📊 SH0005_有才寵物商店_商品資料_02.csv
+├── 🐍 main.py
+├── 📄 project_tree_structure.txt
+└── 📋 requirements.txt

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# 資料檔案（不納入版本控制）
+data/input/
+data/output/
+data/backup/
+temp/
+
+# 所有 CSV / Excel / 日誌檔案
+*.csv
+*.xlsx
+*.xlsm
+*.xls
+*.log
+
+# 作業系統
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
