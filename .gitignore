@@ -21,7 +21,7 @@ logs/*
 
 # 保留資料夾結構
 !data/input/.gitkeep
-!data/input/README.md
+!data/input/範例_SH0005_有才寵物商店_商品資料_01.xlsx
 !data/output/.gitkeep
 !data/backup/.gitkeep
 !temp/.gitkeep
